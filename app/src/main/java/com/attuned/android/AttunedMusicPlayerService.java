@@ -1,8 +1,3 @@
-/*
- * Copyright (C) 2010-2013 Evergage, Inc.
- * All rights reserved.
- */
-
 package com.attuned.android;
 
 import android.app.Service;
