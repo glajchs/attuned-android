@@ -1,18 +1,23 @@
 package com.attuned.android;
 
+import android.annotation.SuppressLint;
 import android.app.Service;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.SharedPreferences.Editor;
 import android.database.Cursor;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
 import android.media.MediaPlayer.OnErrorListener;
-import android.media.MediaPlayer.OnPreparedListener;
 import android.net.Uri;
 import android.os.Binder;
+import android.os.Build.VERSION;
 import android.os.IBinder;
 import android.util.Log;
+import com.eqot.fontawesome.FontAwesome;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -26,18 +31,68 @@ import static android.provider.MediaStore.MediaColumns.TITLE;
 
 public class AttunedMusicPlayerService extends Service {
 
+    public static final String APPLICATION_STATE_IS_SHUFFLED = "isShuffled";
+    public static final String APPLICATION_STATE_SEEK_TIME = "seekTime";
+    public static final String APPLICATION_STATE_CURRENTLY_PLAYING_TRACK_NUMBER = "currentlyPlayingTrackNumber";
     protected MediaPlayer mediaPlayer;
     protected ArrayList<Song> allSongs = new ArrayList<>();
-    protected ArrayList<Integer> shuffledIndecies = new ArrayList<>();
-    protected boolean isPrepared = false;
-    protected boolean isErrored = false;
-    protected boolean isShuffled = false;
-    protected int currentlyPlayingTrackNumber = -1;
+    protected ArrayList<Integer> shuffledIndexes = new ArrayList<>();
     private final IBinder binder = new LocalBinder();
     private LargePlayerActivity largePlayerActivity;
 
-    public void setLargePlayerActivity(LargePlayerActivity largePlayerActivity) {
+    protected boolean isShuffled = false;
+    protected int currentlyPlayingTrackNumber = -1;
+
+    private String pauseButtonImageResource;
+    private String titleText;
+    private String artistText;
+    private String albumText;
+    private String trackText;
+    private SharedPreferences applicationState;
+
+    public void initializeLargePlayerActivity(LargePlayerActivity largePlayerActivity) {
         this.largePlayerActivity = largePlayerActivity;
+
+        renderLargePlayerActivityFromSong();
+    }
+
+    private void renderLargePlayerActivityFromSong() {
+        Song playingSong = allSongs.get(currentlyPlayingTrackNumber);
+        titleText = playingSong.title;
+        largePlayerActivity.titleText.setText(titleText);
+        artistText = playingSong.artist;
+        largePlayerActivity.artistText.setText(artistText);
+        albumText = playingSong.album;
+        largePlayerActivity.albumText.setText(albumText);
+        int trackNumber = playingSong.track;
+        if (trackNumber != -1) {
+            trackText = String.valueOf(playingSong.track) + " - ";
+        } else {
+            trackText = "";
+        }
+        largePlayerActivity.trackText.setText(trackText);
+        setPauseButtonState();
+        setShuffleButtonColor();
+        setupSeekBar();
+    }
+
+    private void setPauseButtonState() {
+        pauseButtonImageResource = mediaPlayer.isPlaying() ? "{fa-pause}" : "{fa-play}";
+        largePlayerActivity.pauseButton.setText(pauseButtonImageResource);
+        FontAwesome.applyToAllViews(getApplicationContext(), largePlayerActivity.pauseButton);
+    }
+
+    private void setShuffleButtonColor() {
+        int shuffleColor = isShuffled ? R.color.colorEnabledButton : R.color.colorDisabledButton;
+        largePlayerActivity.shuffleButton.setTextColor(getResources().getColor(shuffleColor, null));
+    }
+
+    public int getCurrentSeek() {
+        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            return Long.valueOf(mediaPlayer.getTimestamp().getAnchorMediaTimeUs() / 1000l).intValue();
+        } else {
+            return 0;
+        }
     }
 
     // Class used for the client Binder.
@@ -55,8 +110,34 @@ public class AttunedMusicPlayerService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        applicationState = getApplicationContext().getSharedPreferences("ApplicationState", Context.MODE_PRIVATE);
+        isShuffled = applicationState.getBoolean(APPLICATION_STATE_IS_SHUFFLED, false);
         initializeMusicLibrary();
         createMusicPlayer();
+    }
+
+    // .apply() doesn't wait for it to finish, but since this is being destroyed, in order to properly store the value,
+    // we have to wait, which means using .commit().
+    @SuppressLint("ApplySharedPref")
+    private void safeOffSeekTime() {
+        if (applicationState != null && mediaPlayer.isPlaying()) {
+            Editor applicationStateEditor = applicationState.edit();
+            applicationStateEditor.putLong(APPLICATION_STATE_SEEK_TIME, mediaPlayer.getTimestamp().getAnchorMediaTimeUs() / 1000l);
+            applicationStateEditor.putBoolean(APPLICATION_STATE_IS_SHUFFLED, isShuffled);
+            applicationStateEditor.commit();
+        }
+    }
+
+    @Override
+    public boolean onUnbind(Intent intent) {
+        safeOffSeekTime();
+        return super.onUnbind(intent);
+    }
+
+    @Override
+    public void onDestroy() {
+        safeOffSeekTime();
+        super.onDestroy();
     }
 
     private void initializeMusicLibrary() {
@@ -107,9 +188,9 @@ public class AttunedMusicPlayerService extends Service {
             }
         });
         for (int i = 0; i < allSongs.size(); i++) {
-            shuffledIndecies.add(i);
+            shuffledIndexes.add(i);
         }
-        Collections.shuffle(shuffledIndecies);
+        Collections.shuffle(shuffledIndexes);
         Log.w("Attuned", "done looping");
     }
 
@@ -120,17 +201,13 @@ public class AttunedMusicPlayerService extends Service {
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .setUsage(AudioAttributes.USAGE_MEDIA)
                         .build();
-        mediaPlayer.setAudioAttributes(audioAttributes );
-        mediaPlayer.setOnPreparedListener(new OnPreparedListener() {
-            @Override
-            public void onPrepared(MediaPlayer mp) {
-                isPrepared = true;
-            }
-        });
+        mediaPlayer.setAudioAttributes(audioAttributes);
+        // TODO settings-ize this
+        mediaPlayer.setScreenOnWhilePlaying(true);
         mediaPlayer.setOnErrorListener(new OnErrorListener() {
             @Override
             public boolean onError(MediaPlayer mp, int what, int extra) {
-                isErrored = true;
+                Log.e("MediaPlayer", "error setting up the media player");
                 return false;
             }
         });
@@ -140,23 +217,64 @@ public class AttunedMusicPlayerService extends Service {
                 playNextSong();
             }
         });
+        currentlyPlayingTrackNumber = applicationState.getInt(APPLICATION_STATE_CURRENTLY_PLAYING_TRACK_NUMBER, getCurrentSongIndexToPlay());
+        setupSong(false);
     }
 
-    protected void togglePlayPause() {
+    private void setupSong(boolean isUserInitiated) {
+        Uri songUri = Uri.withAppendedPath(Uri.parse("content://media/external/audio/media"), allSongs.get(currentlyPlayingTrackNumber).songID);
+        mediaPlayer.stop();
+        mediaPlayer.reset();
+        try {
+            mediaPlayer.setDataSource(getApplicationContext(), songUri);
+            mediaPlayer.prepare();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        if (!isUserInitiated) {
+            Long seekTimeToSet = applicationState.getLong(APPLICATION_STATE_SEEK_TIME, 0l);
+            if (seekTimeToSet != 0l) {
+                seekTo(seekTimeToSet, false);
+            }
+        }
+        setupSeekBar();
+    }
+
+    public void seekTo(Long seekTimeToSet, boolean userDrivenChange) {
+        if (VERSION.SDK_INT >= 26) {
+            mediaPlayer.seekTo(seekTimeToSet, MediaPlayer.SEEK_PREVIOUS_SYNC);
+            if (userDrivenChange) {
+                Editor applicationStateEditor = applicationState.edit();
+                applicationStateEditor.putLong(APPLICATION_STATE_SEEK_TIME, seekTimeToSet);
+                applicationStateEditor.apply();
+            }
+        }
+    }
+
+    private void setupSeekBar() {
+        if (largePlayerActivity != null) {
+            largePlayerActivity.seekBar.setMax(mediaPlayer.getDuration());
+            largePlayerActivity.seekBar.setProgress((int) (mediaPlayer.getTimestamp().getAnchorMediaTimeUs() / 1000));
+        }
+    }
+
+    protected boolean togglePlayPause() {
         try {
             if (mediaPlayer.isPlaying()) {
                 mediaPlayer.pause();
-                largePlayerActivity.pauseButton.setImageResource(com.attuned.android.R.drawable.play_48);
-            } else if (!isPrepared) {
-                int indexOfCurrentSongToPlay = getCurrentSongIndexToPlay();
-                Uri songUri = Uri.withAppendedPath(Uri.parse("content://media/external/audio/media"), allSongs.get(indexOfCurrentSongToPlay).songID);
-                mediaPlayer.setDataSource(getApplicationContext(), songUri);
-                mediaPlayer.prepare();
-                playSong(indexOfCurrentSongToPlay);
-                largePlayerActivity.pauseButton.setImageResource(com.attuned.android.R.drawable.pause_48);
+//                pauseButtonImageResource = R.drawable.play_48;
+//                largePlayerActivity.pauseButton.setImageResource(pauseButtonImageResource);
+                setPauseButtonState();
+                Editor applicationStateEditor = applicationState.edit();
+                applicationStateEditor.putLong(APPLICATION_STATE_SEEK_TIME, mediaPlayer.getTimestamp().getAnchorMediaTimeUs() / 1000);
+                applicationStateEditor.apply();
+                return false;
             } else {
                 mediaPlayer.start();
-                largePlayerActivity.pauseButton.setImageResource(com.attuned.android.R.drawable.pause_48);
+//                pauseButtonImageResource = R.drawable.pause_48;
+//                largePlayerActivity.pauseButton.setImageResource(pauseButtonImageResource);
+                setPauseButtonState();
+                return true;
             }
         } catch (IllegalArgumentException e) {
             // TODO Auto-generated catch block
@@ -167,85 +285,57 @@ public class AttunedMusicPlayerService extends Service {
         } catch (IllegalStateException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
-        } catch (IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
         }
+        return false;
     }
 
     protected void toggleShuffle() {
         isShuffled = !isShuffled;
+        Editor applicationStateEditor = applicationState.edit();
+        applicationStateEditor.putBoolean(APPLICATION_STATE_IS_SHUFFLED, isShuffled);
+        applicationStateEditor.apply();
+        setShuffleButtonColor();
     }
 
     protected void reShuffleIndicies() {
-        shuffledIndecies = new ArrayList<Integer>();
+        shuffledIndexes = new ArrayList<Integer>();
         for (int i = 0; i < allSongs.size(); i++) {
-            shuffledIndecies.add(i);
+            shuffledIndexes.add(i);
         }
-        Collections.shuffle(shuffledIndecies);
+        Collections.shuffle(shuffledIndexes);
         isShuffled = true;
     }
 
     protected void playPreviousSong() {
-        int previousSongIndex = getPreviousSongIndex();
-        Uri songUri = Uri.withAppendedPath(Uri.parse("content://media/external/audio/media"),
-                        allSongs.get(previousSongIndex).songID);
-        playNewSong(songUri, previousSongIndex);
+        currentlyPlayingTrackNumber = getPreviousSongIndex();
+        setupSong(true);
+        playNewSong(currentlyPlayingTrackNumber);
     }
 
-    protected void playSong(int songIndexToPlay) {
+    protected void playNewSong(int songIndexToPlay) {
         currentlyPlayingTrackNumber = songIndexToPlay;
+        Editor applicationStateEditor = applicationState.edit();
+        applicationStateEditor.putInt(APPLICATION_STATE_CURRENTLY_PLAYING_TRACK_NUMBER, currentlyPlayingTrackNumber);
+        applicationStateEditor.apply();
         mediaPlayer.start();
-        largePlayerActivity.titleText.setText(allSongs.get(songIndexToPlay).title);
-        largePlayerActivity.artistText.setText(allSongs.get(songIndexToPlay).artist);
-        largePlayerActivity.albumText.setText(allSongs.get(songIndexToPlay).album);
-        int trackNumber = allSongs.get(songIndexToPlay).track;
-        if (trackNumber != -1) {
-            largePlayerActivity.trackText.setText(String.valueOf(allSongs.get(songIndexToPlay).track) + " - ");
-        } else {
-            largePlayerActivity.trackText.setText("");
-        }
+        renderLargePlayerActivityFromSong();
     }
 
     protected void playNextSong() {
-        int nextSongIndex = getNextSongIndex();
-        Uri songUri = Uri.withAppendedPath(Uri.parse("content://media/external/audio/media"),
-                        allSongs.get(nextSongIndex).songID);
-        playNewSong(songUri, nextSongIndex);
-    }
-
-    protected void playNewSong(Uri songUri, int songIndex) {
-        try {
-            mediaPlayer.stop();
-            mediaPlayer.reset();
-            mediaPlayer.setDataSource(getApplicationContext(), songUri);
-            mediaPlayer.prepare();
-            playSong(songIndex);
-            largePlayerActivity.pauseButton.setImageResource(com.attuned.android.R.drawable.pause_48);
-        } catch (IllegalArgumentException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        } catch (SecurityException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        } catch (IllegalStateException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        } catch (IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
+        currentlyPlayingTrackNumber = getNextSongIndex();
+        setupSong(true);
+        playNewSong(currentlyPlayingTrackNumber);
     }
 
     protected int getNextSongIndex() {
         if (currentlyPlayingTrackNumber == -1) {
             return getFirstSongIndex();
         } else if (isShuffled) {
-            int shuffleSongIndex = shuffledIndecies.indexOf(currentlyPlayingTrackNumber);
-            if (shuffleSongIndex == shuffledIndecies.size() - 1) {
-                return shuffledIndecies.get(0);
+            int shuffleSongIndex = shuffledIndexes.indexOf(currentlyPlayingTrackNumber);
+            if (shuffleSongIndex == shuffledIndexes.size() - 1) {
+                return shuffledIndexes.get(0);
             } else {
-                return shuffledIndecies.get(shuffleSongIndex + 1);
+                return shuffledIndexes.get(shuffleSongIndex + 1);
             }
         } else {
             if (currentlyPlayingTrackNumber == allSongs.size() - 1) {
@@ -260,11 +350,11 @@ public class AttunedMusicPlayerService extends Service {
         if (currentlyPlayingTrackNumber == -1) {
             return getFirstSongIndex();
         } else if (isShuffled) {
-            int shuffleSongIndex = shuffledIndecies.indexOf(currentlyPlayingTrackNumber);
+            int shuffleSongIndex = shuffledIndexes.indexOf(currentlyPlayingTrackNumber);
             if (shuffleSongIndex == 0) {
-                return shuffledIndecies.get(shuffledIndecies.size() - 1);
+                return shuffledIndexes.get(shuffledIndexes.size() - 1);
             } else {
-                return shuffledIndecies.get(shuffleSongIndex - 1);
+                return shuffledIndexes.get(shuffleSongIndex - 1);
             }
         } else {
             if (currentlyPlayingTrackNumber == 0) {
@@ -285,7 +375,7 @@ public class AttunedMusicPlayerService extends Service {
 
     protected int getFirstSongIndex() {
         if (isShuffled) {
-            return shuffledIndecies.get(0);
+            return shuffledIndexes.get(0);
         } else {
             return 0;
         }

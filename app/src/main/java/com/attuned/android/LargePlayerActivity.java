@@ -15,15 +15,25 @@ import android.view.Menu;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.View.OnLongClickListener;
-import android.widget.ImageButton;
+import android.widget.Button;
+import android.widget.SeekBar;
+import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.TextView;
+import com.eqot.fontawesome.FontAwesome;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 public class LargePlayerActivity extends AppCompatActivity {
-    public ImageButton pauseButton;
+    public Button pauseButton;
+    public Button shuffleButton;
     public TextView titleText;
     public TextView artistText;
     public TextView albumText;
     public TextView trackText;
+    public SeekBar seekBar;
 
     // To invoke the bound service, first make sure that this value
     // is not null.
@@ -38,7 +48,7 @@ public class LargePlayerActivity extends AppCompatActivity {
             // cast its IBinder to a concrete class and directly access it.
 
             attunedMusicPlayerService = ((AttunedMusicPlayerService.LocalBinder)service).getService();
-            attunedMusicPlayerService.setLargePlayerActivity(LargePlayerActivity.this);
+            attunedMusicPlayerService.initializeLargePlayerActivity(LargePlayerActivity.this);
         }
 
         public void onServiceDisconnected(ComponentName className) {
@@ -50,6 +60,8 @@ public class LargePlayerActivity extends AppCompatActivity {
         }
     };
     private boolean mShouldUnbind;
+    private ScheduledFuture<?> seekScheduledFuture;
+    private ScheduledExecutorService service;
 
     void doBindService() {
         // Attempts to establish a connection with the service.  We use an
@@ -57,8 +69,10 @@ public class LargePlayerActivity extends AppCompatActivity {
         // implementation that we know will be running in our own process
         // (and thus won't be supporting component replacement by other
         // applications).
-        if (bindService(new Intent(LargePlayerActivity.this, AttunedMusicPlayerService.class),
-                mConnection, Context.BIND_AUTO_CREATE)) {
+        Intent serviceIntent = new Intent(LargePlayerActivity.this, AttunedMusicPlayerService.class);
+        startService(serviceIntent);
+        if (bindService(serviceIntent,
+                        mConnection, Context.BIND_IMPORTANT)) {
             mShouldUnbind = true;
         } else {
             Log.e("MY_APP_TAG", "Error: The requested service doesn't " +
@@ -90,6 +104,10 @@ public class LargePlayerActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(com.attuned.android.R.layout.activity_large_player);
+        FontAwesome.applyToAllViews(this, findViewById(R.id.shuffleButtonLarge));
+        FontAwesome.applyToAllViews(this, findViewById(R.id.playPauseButtonLarge));
+        FontAwesome.applyToAllViews(this, findViewById(R.id.previousButtonLarge));
+        FontAwesome.applyToAllViews(this, findViewById(R.id.nextButtonLarge));
         if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED) {
 
@@ -112,9 +130,26 @@ public class LargePlayerActivity extends AppCompatActivity {
         artistText = findViewById(com.attuned.android.R.id.artistText);
         albumText = findViewById(com.attuned.android.R.id.albumText);
         trackText = findViewById(com.attuned.android.R.id.trackText);
-//        songPositionText = findViewById(com.attuned.android.R.id.songPositionText);
+        seekBar = findViewById(com.attuned.android.R.id.seekBar);
+        seekBar.setOnSeekBarChangeListener(new OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                Log.d("onProgressChanged", String.valueOf(progress));
+            }
 
-        ImageButton shuffleButton = findViewById(com.attuned.android.R.id.shuffleButtonLarge);
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                destroySeekListener();
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                attunedMusicPlayerService.seekTo((long) seekBar.getProgress(), true);
+                setupSeekListener();
+            }
+        });
+
+        shuffleButton = findViewById(com.attuned.android.R.id.shuffleButtonLarge);
         shuffleButton.setOnClickListener(new OnClickListener() {
             @SuppressLint("NewApi")
             @Override
@@ -134,24 +169,53 @@ public class LargePlayerActivity extends AppCompatActivity {
             @SuppressLint("NewApi")
             @Override
             public void onClick(View v) {
-                attunedMusicPlayerService.togglePlayPause();
+                boolean isPlaying = attunedMusicPlayerService.togglePlayPause();
+                if (isPlaying) {
+                    setupSeekListener();
+                } else {
+                    destroySeekListener();
+                }
             }
         });
-        ImageButton previousButton = findViewById(com.attuned.android.R.id.previousButtonLarge);
+        Button previousButton = findViewById(com.attuned.android.R.id.previousButtonLarge);
         previousButton.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
+                destroySeekListener();
                 attunedMusicPlayerService.playPreviousSong();
+                setupSeekListener();
             }
         });
-        ImageButton nextButton = findViewById(com.attuned.android.R.id.nextButtonLarge);
+        Button nextButton = findViewById(com.attuned.android.R.id.nextButtonLarge);
         nextButton.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
+                destroySeekListener();
                 attunedMusicPlayerService.playNextSong();
+                setupSeekListener();
             }
         });
     }
+
+    private void destroySeekListener() {
+        if (seekScheduledFuture != null) {
+            seekScheduledFuture.cancel(true);
+        }
+    }
+
+    private void setupSeekListener() {
+        if (service == null) {
+            service = Executors.newScheduledThreadPool(1);
+        }
+        destroySeekListener();
+        seekScheduledFuture = service.scheduleWithFixedDelay(new Runnable() {
+            @Override
+            public void run() {
+                seekBar.setProgress(attunedMusicPlayerService.getCurrentSeek());
+            }
+        }, 250, 250, TimeUnit.MILLISECONDS);
+    }
+
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {

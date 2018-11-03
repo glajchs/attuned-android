@@ -1,8 +1,7 @@
 <resources>
     <string name="app_name">Attuned</string>
     <string name="action_settings">Settings</string>
-    <string name="next_button">Next Button</string>
-    <string name="play_pause_button">Play/Pause Button</string>
-    <string name="previous_button">Previous Button</string>
-    <string name="shuffle_button">Shuffle</string>
+    <string name="shuffle_button_icon">{fa-random}</string>
+    <string name="next_button_icon">{fa-forward}</string>
+    <string name="previous_button_icon">{fa-backward}</string>
 </resources>

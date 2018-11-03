@@ -18,28 +18,29 @@
             android:orientation="vertical"
             tools:ignore="NestedWeights">
 
-            <ImageButton
+            <Button
                 android:id="@+id/shuffleButtonLarge"
                 android:layout_width="fill_parent"
                 android:layout_height="fill_parent"
-                android:contentDescription="@string/shuffle_button"
-                android:scaleType="fitCenter"
-                android:src="@drawable/shuffle_64"/>
+                android:text="@string/shuffle_button_icon"
+                android:autoSizeTextType="uniform"
+                android:textStyle="bold"/>
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="fill_parent"
             android:layout_height="fill_parent"
             android:layout_weight="1"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            tools:ignore="NestedWeights">
 
-            <ImageButton
+            <Button
                 android:id="@+id/playPauseButtonLarge"
                 android:layout_width="fill_parent"
                 android:layout_height="fill_parent"
-                android:contentDescription="@string/play_pause_button"
-                android:scaleType="fitCenter"
-                android:src="@drawable/play_48"/>
+                android:autoSizeTextType="uniform"
+                android:textColor="@color/colorDisabledButton"
+                android:textStyle="bold"/>
         </LinearLayout>
     </LinearLayout>
 
@@ -57,28 +58,31 @@
             android:orientation="vertical"
             tools:ignore="NestedWeights">
 
-            <ImageButton
+            <Button
                 android:id="@+id/previousButtonLarge"
                 android:layout_width="fill_parent"
                 android:layout_height="fill_parent"
-                android:contentDescription="@string/previous_button"
-                android:scaleType="fitCenter"
-                android:src="@drawable/previous_48"/>
+                android:text="@string/previous_button_icon"
+                android:autoSizeTextType="uniform"
+                android:textColor="@color/colorDisabledButton"
+                android:textStyle="bold"/>
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="fill_parent"
             android:layout_height="fill_parent"
             android:layout_weight="1"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            tools:ignore="NestedWeights">
 
-            <ImageButton
+            <Button
                 android:id="@+id/nextButtonLarge"
                 android:layout_width="fill_parent"
                 android:layout_height="fill_parent"
-                android:contentDescription="@string/next_button"
-                android:scaleType="fitCenter"
-                android:src="@drawable/next_48"/>
+                android:text="@string/next_button_icon"
+                android:autoSizeTextType="uniform"
+                android:textColor="@color/colorDisabledButton"
+                android:textStyle="bold"/>
         </LinearLayout>
     </LinearLayout>
 
@@ -95,6 +99,21 @@
             android:layout_weight="1"
             android:orientation="vertical"
             tools:ignore="NestedWeights">
+
+
+            <LinearLayout
+                android:layout_width="fill_parent"
+                android:layout_height="fill_parent"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                tools:ignore="NestedWeights">
+
+                <SeekBar
+                    android:id="@+id/seekBar"
+                    tools:ignore="HardcodedText" android:layout_width="fill_parent" android:layout_height="fill_parent"
+                    android:visibility="visible" style="@android:style/Widget.SeekBar"/>
+            </LinearLayout>
 
             <LinearLayout
                 android:layout_width="fill_parent"
