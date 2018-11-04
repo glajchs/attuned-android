@@ -23,6 +23,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import static android.provider.BaseColumns._ID;
 import static android.provider.MediaStore.Audio.AudioColumns.*;
@@ -31,6 +36,7 @@ import static android.provider.MediaStore.MediaColumns.TITLE;
 
 public class AttunedMusicPlayerService extends Service {
 
+    public static final int TEN_SECONDS = 10000;
     private boolean hasBeenInitializedEver = false;
     public static final String APPLICATION_STATE_IS_SHUFFLED = "isShuffled";
     public static final String APPLICATION_STATE_SEEK_TIME = "seekTime";
@@ -40,7 +46,10 @@ public class AttunedMusicPlayerService extends Service {
     protected ArrayList<Integer> shuffledIndexes = new ArrayList<>();
     private final IBinder binder = new LocalBinder();
     private LargePlayerActivity largePlayerActivity;
+    private ScheduledFuture<?> seekScheduledFuture;
+    private ScheduledExecutorService service;
 
+    private long lastProgressBasedSeekStored = 0;
     protected boolean isShuffled = false;
     protected int currentlyPlayingTrackNumber = -1;
 
@@ -250,33 +259,40 @@ public class AttunedMusicPlayerService extends Service {
         if (VERSION.SDK_INT >= 26) {
             mediaPlayer.seekTo(seekTimeToSet, MediaPlayer.SEEK_PREVIOUS_SYNC);
             if (userDrivenChange) {
-                Editor applicationStateEditor = applicationState.edit();
-                applicationStateEditor.putLong(APPLICATION_STATE_SEEK_TIME, seekTimeToSet);
-                applicationStateEditor.apply();
+                setSeekTime(seekTimeToSet);
             }
         }
     }
 
+    public void setSeekTime(Long seekTimeToSet) {
+        Editor applicationStateEditor = applicationState.edit();
+        applicationStateEditor.putLong(APPLICATION_STATE_SEEK_TIME, seekTimeToSet);
+        applicationStateEditor.apply();
+    }
+
     private void setupSeekBar() {
         if (largePlayerActivity != null) {
-            largePlayerActivity.seekBar.setMax(mediaPlayer.getDuration());
+            int duration = mediaPlayer.getDuration();
+            if (duration < 10000) {
+                Log.w("Duration", String.valueOf(duration));
+            }
+            largePlayerActivity.seekBar.setMax(duration);
             largePlayerActivity.seekBar.setProgress((int) (mediaPlayer.getTimestamp().getAnchorMediaTimeUs() / 1000));
         }
     }
 
-    protected boolean togglePlayPause() {
+    protected void togglePlayPause() {
         try {
+            destroySeekListener();
             if (mediaPlayer.isPlaying()) {
                 mediaPlayer.pause();
                 setPauseButtonState();
-                Editor applicationStateEditor = applicationState.edit();
-                applicationStateEditor.putLong(APPLICATION_STATE_SEEK_TIME, mediaPlayer.getTimestamp().getAnchorMediaTimeUs() / 1000);
-                applicationStateEditor.apply();
-                return false;
+                setSeekTime(mediaPlayer.getTimestamp().getAnchorMediaTimeUs() / 1000);
+                destroySeekListener();
             } else {
                 mediaPlayer.start();
                 setPauseButtonState();
-                return true;
+                setupSeekListener();
             }
         } catch (IllegalArgumentException e) {
             // TODO Auto-generated catch block
@@ -288,7 +304,6 @@ public class AttunedMusicPlayerService extends Service {
             // TODO Auto-generated catch block
             e.printStackTrace();
         }
-        return false;
     }
 
     protected void toggleShuffle() {
@@ -309,9 +324,11 @@ public class AttunedMusicPlayerService extends Service {
     }
 
     protected void playPreviousSong() {
+        destroySeekListener();
         currentlyPlayingTrackNumber = getPreviousSongIndex();
         setupSong(true);
         playNewSong(currentlyPlayingTrackNumber);
+        setupSeekListener();
     }
 
     protected void playNewSong(int songIndexToPlay) {
@@ -324,9 +341,11 @@ public class AttunedMusicPlayerService extends Service {
     }
 
     protected void playNextSong() {
+        destroySeekListener();
         currentlyPlayingTrackNumber = getNextSongIndex();
         setupSong(true);
         playNewSong(currentlyPlayingTrackNumber);
+        setupSeekListener();
     }
 
     protected int getNextSongIndex() {
@@ -383,4 +402,26 @@ public class AttunedMusicPlayerService extends Service {
         }
     }
 
+    public void setupSeekListener() {
+        if (service == null) {
+            service = Executors.newScheduledThreadPool(1);
+        }
+        destroySeekListener();
+        seekScheduledFuture = service.scheduleWithFixedDelay(new Runnable() {
+            @Override
+            public void run() {
+                int currentSeek = getCurrentSeek();
+                largePlayerActivity.seekBar.setProgress(currentSeek);
+                if (lastProgressBasedSeekStored + TEN_SECONDS < new Date().getTime()) {
+                    setSeekTime((long) currentSeek);
+                }
+            }
+        }, 250, 250, TimeUnit.MILLISECONDS);
+    }
+
+    public void destroySeekListener() {
+        if (seekScheduledFuture != null) {
+            seekScheduledFuture.cancel(true);
+        }
+    }
 }

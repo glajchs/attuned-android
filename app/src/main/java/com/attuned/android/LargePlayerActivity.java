@@ -21,11 +21,6 @@ import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.TextView;
 import com.eqot.fontawesome.FontAwesome;
 
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-
 public class LargePlayerActivity extends AppCompatActivity {
     public Button pauseButton;
     public Button shuffleButton;
@@ -60,8 +55,6 @@ public class LargePlayerActivity extends AppCompatActivity {
         }
     };
     private boolean mShouldUnbind;
-    private ScheduledFuture<?> seekScheduledFuture;
-    private ScheduledExecutorService service;
 
     void doBindService() {
         // Attempts to establish a connection with the service.  We use an
@@ -139,13 +132,13 @@ public class LargePlayerActivity extends AppCompatActivity {
 
             @Override
             public void onStartTrackingTouch(SeekBar seekBar) {
-                destroySeekListener();
+                attunedMusicPlayerService.destroySeekListener();
             }
 
             @Override
             public void onStopTrackingTouch(SeekBar seekBar) {
                 attunedMusicPlayerService.seekTo((long) seekBar.getProgress(), true);
-                setupSeekListener();
+                attunedMusicPlayerService.setupSeekListener();
             }
         });
 
@@ -169,51 +162,23 @@ public class LargePlayerActivity extends AppCompatActivity {
             @SuppressLint("NewApi")
             @Override
             public void onClick(View v) {
-                boolean isPlaying = attunedMusicPlayerService.togglePlayPause();
-                if (isPlaying) {
-                    setupSeekListener();
-                } else {
-                    destroySeekListener();
-                }
+                attunedMusicPlayerService.togglePlayPause();
             }
         });
         Button previousButton = findViewById(com.attuned.android.R.id.previousButtonLarge);
         previousButton.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                destroySeekListener();
                 attunedMusicPlayerService.playPreviousSong();
-                setupSeekListener();
             }
         });
         Button nextButton = findViewById(com.attuned.android.R.id.nextButtonLarge);
         nextButton.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                destroySeekListener();
                 attunedMusicPlayerService.playNextSong();
-                setupSeekListener();
             }
         });
-    }
-
-    private void destroySeekListener() {
-        if (seekScheduledFuture != null) {
-            seekScheduledFuture.cancel(true);
-        }
-    }
-
-    private void setupSeekListener() {
-        if (service == null) {
-            service = Executors.newScheduledThreadPool(1);
-        }
-        destroySeekListener();
-        seekScheduledFuture = service.scheduleWithFixedDelay(new Runnable() {
-            @Override
-            public void run() {
-                seekBar.setProgress(attunedMusicPlayerService.getCurrentSeek());
-            }
-        }, 250, 250, TimeUnit.MILLISECONDS);
     }
 
 
