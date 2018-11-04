@@ -31,6 +31,7 @@ import static android.provider.MediaStore.MediaColumns.TITLE;
 
 public class AttunedMusicPlayerService extends Service {
 
+    private boolean hasBeenInitializedEver = false;
     public static final String APPLICATION_STATE_IS_SHUFFLED = "isShuffled";
     public static final String APPLICATION_STATE_SEEK_TIME = "seekTime";
     public static final String APPLICATION_STATE_CURRENTLY_PLAYING_TRACK_NUMBER = "currentlyPlayingTrackNumber";
@@ -88,7 +89,9 @@ public class AttunedMusicPlayerService extends Service {
     }
 
     public int getCurrentSeek() {
-        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+        if (mediaPlayer != null
+                && mediaPlayer.getTimestamp() != null
+                && mediaPlayer.getTimestamp().getAnchorMediaTimeUs() > 0) {
             return Long.valueOf(mediaPlayer.getTimestamp().getAnchorMediaTimeUs() / 1000l).intValue();
         } else {
             return 0;
@@ -108,12 +111,15 @@ public class AttunedMusicPlayerService extends Service {
     }
 
     @Override
-    public void onCreate() {
-        super.onCreate();
-        applicationState = getApplicationContext().getSharedPreferences("ApplicationState", Context.MODE_PRIVATE);
-        isShuffled = applicationState.getBoolean(APPLICATION_STATE_IS_SHUFFLED, false);
-        initializeMusicLibrary();
-        createMusicPlayer();
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (!hasBeenInitializedEver) {
+            applicationState = getApplicationContext().getSharedPreferences("ApplicationState", Context.MODE_PRIVATE);
+            isShuffled = applicationState.getBoolean(APPLICATION_STATE_IS_SHUFFLED, false);
+            initializeMusicLibrary();
+            createMusicPlayer();
+        }
+        hasBeenInitializedEver = true;
+        return super.onStartCommand(intent, flags, startId);
     }
 
     // .apply() doesn't wait for it to finish, but since this is being destroyed, in order to properly store the value,
@@ -262,8 +268,6 @@ public class AttunedMusicPlayerService extends Service {
         try {
             if (mediaPlayer.isPlaying()) {
                 mediaPlayer.pause();
-//                pauseButtonImageResource = R.drawable.play_48;
-//                largePlayerActivity.pauseButton.setImageResource(pauseButtonImageResource);
                 setPauseButtonState();
                 Editor applicationStateEditor = applicationState.edit();
                 applicationStateEditor.putLong(APPLICATION_STATE_SEEK_TIME, mediaPlayer.getTimestamp().getAnchorMediaTimeUs() / 1000);
@@ -271,8 +275,6 @@ public class AttunedMusicPlayerService extends Service {
                 return false;
             } else {
                 mediaPlayer.start();
-//                pauseButtonImageResource = R.drawable.pause_48;
-//                largePlayerActivity.pauseButton.setImageResource(pauseButtonImageResource);
                 setPauseButtonState();
                 return true;
             }
@@ -298,7 +300,7 @@ public class AttunedMusicPlayerService extends Service {
     }
 
     protected void reShuffleIndicies() {
-        shuffledIndexes = new ArrayList<Integer>();
+        shuffledIndexes = new ArrayList<>();
         for (int i = 0; i < allSongs.size(); i++) {
             shuffledIndexes.add(i);
         }
